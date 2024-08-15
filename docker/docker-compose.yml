@@ -1,0 +1,111 @@
+services:
+  db-mongo:
+    container_name: mongo_database
+    image: mongo:4.4
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+      - ./init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js
+    env_file:
+      - .env
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASS}
+    command: [ --auth ]
+    networks:
+      - dev_network
+    restart: always
+    healthcheck:
+      test: [ "CMD", "mongo", "--eval", "db.adminCommand('ping')" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  db-postgres:
+    container_name: postgres_database
+    image: postgres:15.1-alpine
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgsql:/var/lib/postgresql/data/
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    networks:
+      - dev_network
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  db-redis:
+    container_name: redis_database
+    image: redis:latest
+    ports:
+      - "6379:6379"
+    env_file:
+      - .env
+    networks:
+      - dev_network
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 10s
+      retries: 3
+
+  admin-pgadmin:
+    container_name: pgadmin
+    image: dpage/pgadmin4:7
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin:/var/lib/pgadmin
+    env_file:
+      - .env
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    networks:
+      - dev_network
+    depends_on:
+      db-postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  s3minio:
+    container_name: s3_storage
+    image: minio/minio:latest
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - s3storage:/data
+    env_file:
+      - .env
+    command: server /data --console-address ":9001"
+    networks:
+      - dev_network
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  pgsql:
+  mongo_data:
+  pgadmin:
+  s3storage:
+
+networks:
+  dev_network:
+    name: "dev_network"

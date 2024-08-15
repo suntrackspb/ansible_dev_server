@@ -1,0 +1,133 @@
+---
+- name: Configure server
+  hosts: all
+  vars_files:
+    - "vars/main.yaml"
+  become: yes
+  gather_facts: yes
+
+  tasks:
+    - name: Update apt/yum cache
+      ansible.builtin.package:
+        update_cache: yes
+
+    - name: Check if openssh server is installed
+      apt:
+        name: openssh-server
+        state: present
+
+    - name: Disable password methods on sshd
+      ansible.builtin.blockinfile:
+        path: /etc/ssh/sshd_config.d/10-ansible-setup.conf
+        block: |
+          ChallengeResponseAuthentication no
+          PasswordAuthentication no
+          PermitRootLogin no
+      notify: Restart sshd
+
+    - name: Run sshd by systemd
+      systemd:
+        name: sshd
+        enabled: yes
+        state: started
+
+    - name: Get public SSH keys from GitHub
+      uri:
+        url: "https://api.github.com/users/{{ github_username }}/keys"
+        return_content: yes
+      register: github_keys
+
+    - name: Add GitHub SSH keys to authorized_keys
+      authorized_key:
+        user: "{{ ansible_user }}"
+        key: "{{ item.key }}"
+      loop: "{{ github_keys.json }}"
+
+    - name: Install necessary packages
+      ansible.builtin.package:
+        name:
+          - htop
+          - iftop
+          - curl
+          - nano
+          - nginx
+          - docker.io
+          - docker-compose
+          - fail2ban
+        state: present
+      when: ansible_pkg_mgr == 'apt'
+
+    - name: Install necessary packages on CentOS
+      ansible.builtin.package:
+        name:
+          - epel-release
+          - htop
+          - iftop
+          - curl
+          - nano
+          - nginx
+          - docker
+          - docker-compose
+          - fail2ban
+        state: present
+      when: ansible_pkg_mgr == 'yum'
+
+    - name: Start and enable Docker
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Obtain Let's Encrypt certificate
+      community.crypto.acme_certificate:
+        acme_directory: https://acme-v02.api.letsencrypt.org/directory
+        account_email: "{{ email }}"
+        domains: "{{ domain_name }}"
+        auth: nginx
+      when: ansible_pkg_mgr in ['apt', 'yum']
+
+    - name: Deploy NGINX configuration
+      ansible.builtin.template:
+        src: nginx.conf.j2
+        dest: /etc/nginx/conf.d/{{ domain_name }}.conf
+      notify: Restart NGINX
+
+    - name: Copy docker-compose.yml
+      ansible.builtin.copy:
+        src: ./docker-compose.yml
+        dest: /home/{{ ansible_user }}/docker-compose.yml
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: '0644'
+
+    - name: Copy .env file
+      ansible.builtin.copy:
+        src: ./env
+        dest: /home/{{ ansible_user }}/.env
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: '0644'
+
+    - name: Copy init-mongo.js file
+      ansible.builtin.copy:
+        src: ./init-mongo.js
+        dest: /home/{{ ansible_user }}/init-mongo.js
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: '0644'
+
+    - name: Run docker-compose
+      community.docker.docker_compose:
+        project_src: /home/{{ ansible_user }}
+        state: present
+
+  handlers:
+    - name: Restart sshd
+      service:
+        name: sshd
+        state: restarted
+
+    - name: Restart NGINX
+      ansible.builtin.service:
+        name: nginx
+        state: restarted
