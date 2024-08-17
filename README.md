@@ -17,7 +17,7 @@
 ### Run
 
 ```shell
-git clone https://github.com/suntrackspb/home_dev_server.git
+git clone https://github.com/suntrackspb/ansible_dev_server.git
 ```
 Configured files:
 
