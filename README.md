@@ -6,7 +6,7 @@
 2. Docker
 3. Small utilities: htop, iftop, curl, etc
 
-### Installed in docker
+### Run in docker
 1. PostgresSql
 2. PgAdmin
 3. MongoDB
